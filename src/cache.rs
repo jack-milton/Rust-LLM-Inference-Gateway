@@ -46,6 +46,13 @@ struct MemoryCacheItem {
 }
 
 impl ResponseCache {
+    pub fn memory(config: CacheConfig) -> Self {
+        Self {
+            backend: CacheBackend::Memory(Mutex::new(HashMap::new())),
+            config,
+        }
+    }
+
     pub fn from_env(config: CacheConfig) -> Self {
         let backend = match env::var("REDIS_URL") {
             Ok(url) if !url.trim().is_empty() => match redis::Client::open(url.clone()) {

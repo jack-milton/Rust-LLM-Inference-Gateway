@@ -149,8 +149,7 @@ impl RateLimiter {
         }
     }
 
-    #[cfg(test)]
-    fn memory_for_tests() -> Self {
+    pub fn in_memory() -> Self {
         Self {
             backend: RateLimiterBackend::Memory(Mutex::new(HashMap::new())),
         }
@@ -489,7 +488,7 @@ mod tests {
 
     #[tokio::test]
     async fn limits_consume_and_reconcile() {
-        let limiter = RateLimiter::memory_for_tests();
+        let limiter = RateLimiter::in_memory();
         let policy = RatePolicy {
             requests_per_minute: 10,
             tokens_per_minute: 1_000,

@@ -157,6 +157,7 @@ impl InferenceBackend for BackendRouter {
         "backend-router"
     }
 
+    #[tracing::instrument(skip(self, request), fields(model = %request.model))]
     async fn execute_chat(
         &self,
         request: NormalizedChatRequest,
@@ -180,6 +181,7 @@ impl InferenceBackend for BackendRouter {
         result
     }
 
+    #[tracing::instrument(skip(self, request), fields(model = %request.model))]
     async fn stream_chat(
         &self,
         request: NormalizedChatRequest,

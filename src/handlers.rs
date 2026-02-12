@@ -70,6 +70,7 @@ pub async fn chat_completions(
     response
 }
 
+#[tracing::instrument(skip(state, headers, request), fields(stream = request.stream))]
 async fn process_chat_completions(
     state: AppState,
     headers: HeaderMap,
@@ -130,6 +131,7 @@ async fn process_chat_completions(
     }
 }
 
+#[tracing::instrument(skip(state, request), fields(model = %request.model))]
 async fn one_shot_completion(
     state: AppState,
     request: NormalizedChatRequest,
@@ -198,6 +200,7 @@ async fn one_shot_completion(
     Ok(response)
 }
 
+#[tracing::instrument(skip(state, request), fields(model = %request.model))]
 async fn stream_completion(
     state: AppState,
     request: NormalizedChatRequest,

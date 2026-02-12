@@ -18,6 +18,8 @@ Current foundation includes:
 - Dynamic micro-batching for non-stream requests:
   - batch class by model + decoding params
   - flush on max batch size or max wait window
+- CI pipeline for `fmt`, `clippy -D warnings`, and tests
+- Container stack files for gateway + Redis + Prometheus + Grafana
 
 ## Internal data models
 
@@ -58,6 +60,14 @@ cargo run
 
 Server listens on `0.0.0.0:8080`.
 
+## Dev Checks
+
+```bash
+cargo fmt --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test
+```
+
 ### Non-stream request
 
 ```bash
@@ -86,7 +96,12 @@ curl -N http://localhost:8080/v1/chat/completions \
 
 ## Project layout
 
+- `.github/workflows/ci.yml`: CI pipeline
+- `Dockerfile`: production image build
+- `docker-compose.yml`: local observability stack
+- `deploy/prometheus/prometheus.yml`: scrape config
 - `src/main.rs`: app bootstrap + routes
+- `src/lib.rs`: app/state builders for binary and integration tests
 - `src/handlers.rs`: HTTP handlers + SSE mapping
 - `src/models.rs`: OpenAI and internal canonical models
 - `src/auth.rs`: API key auth and default policy config
@@ -118,9 +133,26 @@ curl -N http://localhost:8080/v1/chat/completions \
 - `OPENAI_BASE_URL`: OpenAI-compatible base URL (default: `https://api.openai.com/v1`)
 - `OPENAI_TIMEOUT_SECS`: OpenAI request timeout seconds (default: `60`)
 
+## Containerized stack
+
+```bash
+docker compose up --build
+```
+
+If you use `podman`:
+
+```bash
+podman-compose up --build
+```
+
+Endpoints:
+- Gateway: `http://localhost:8080`
+- Prometheus: `http://localhost:9090`
+- Grafana: `http://localhost:3000`
+
 ## Next implementation slices
 
-1. Add OpenTelemetry tracing spans across auth, quota, coalescing, batch, and router stages.
+1. Add OpenTelemetry exporter wiring (OTLP) so traces can be sent to Jaeger/Tempo.
 2. Add stricter stream-failure token reconciliation with Redis-side atomic adjustments.
 3. Add vLLM/TGI adapters and true provider-side batched inference calls.
 4. Add load test harness + benchmark dashboards for p50/p95/p99 and throughput curves.

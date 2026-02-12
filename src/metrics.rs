@@ -142,6 +142,12 @@ impl AppMetrics {
     }
 }
 
+impl Default for AppMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Drop for InflightGuard<'_> {
     fn drop(&mut self) {
         self.metrics.inflight_requests.dec();

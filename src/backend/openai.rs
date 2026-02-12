@@ -59,6 +59,7 @@ impl InferenceBackend for OpenAiAdapter {
         "openai-adapter"
     }
 
+    #[tracing::instrument(skip(self, request), fields(model = %request.model))]
     async fn execute_chat(
         &self,
         request: NormalizedChatRequest,
@@ -124,6 +125,7 @@ impl InferenceBackend for OpenAiAdapter {
         })
     }
 
+    #[tracing::instrument(skip(self, request), fields(model = %request.model))]
     async fn stream_chat(
         &self,
         request: NormalizedChatRequest,

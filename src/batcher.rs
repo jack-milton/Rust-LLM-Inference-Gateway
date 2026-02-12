@@ -31,7 +31,7 @@ impl BatchConfig {
     pub fn from_env() -> Self {
         let enabled = env::var("GATEWAY_BATCH_ENABLED")
             .ok()
-            .map(|value| value != "0" && value.to_ascii_lowercase() != "false")
+            .map(|value| value != "0" && !value.eq_ignore_ascii_case("false"))
             .unwrap_or(true);
         let max_batch_size = env::var("GATEWAY_BATCH_MAX_SIZE")
             .ok()

@@ -16,9 +16,11 @@ pub enum CoalesceOutcome {
 
 #[derive(Debug, Default)]
 pub struct InflightCoalescer {
-    inflight: Mutex<HashMap<String, Vec<oneshot::Sender<Result<BackendChatResponse, String>>>>>,
+    inflight: Mutex<HashMap<String, Vec<InflightWaiter>>>,
     stream_inflight: Mutex<HashMap<String, Arc<Mutex<StreamEntry>>>>,
 }
+
+type InflightWaiter = oneshot::Sender<Result<BackendChatResponse, String>>;
 
 impl InflightCoalescer {
     pub async fn execute_or_join(
