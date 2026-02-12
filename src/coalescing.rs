@@ -94,7 +94,10 @@ impl InflightCoalescer {
         }
         drop(entry_guard);
 
-        StreamJoin { receiver: rx, is_leader }
+        StreamJoin {
+            receiver: rx,
+            is_leader,
+        }
     }
 
     pub async fn publish_stream_item(&self, key: &str, item: StreamItem) {
@@ -151,17 +154,54 @@ fn is_terminal_item(item: &StreamItem) -> bool {
 mod tests {
     use std::sync::Arc;
 
+    use async_trait::async_trait;
+    use futures_util::stream::BoxStream;
+    use tokio::time::{sleep, Duration};
+
     use crate::{
-        backend::mock::MockBackend,
-        models::{BackendChunk, GenerationParams, MessageRole, NormalizedChatRequest, NormalizedMessage},
+        backend::{BackendError, BackendStream, InferenceBackend},
+        models::{
+            BackendChatResponse, BackendChunk, GenerationParams, MessageRole,
+            NormalizedChatRequest, NormalizedMessage, Usage,
+        },
     };
 
     use super::{CoalesceOutcome, InflightCoalescer};
 
+    struct SlowTestBackend;
+
+    #[async_trait]
+    impl InferenceBackend for SlowTestBackend {
+        fn name(&self) -> &str {
+            "slow-test-backend"
+        }
+
+        async fn execute_chat(
+            &self,
+            _request: NormalizedChatRequest,
+        ) -> Result<BackendChatResponse, BackendError> {
+            sleep(Duration::from_millis(30)).await;
+            Ok(BackendChatResponse {
+                content: "ok".to_owned(),
+                finish_reason: "stop".to_owned(),
+                usage: Usage::new(1, 1),
+            })
+        }
+
+        async fn stream_chat(
+            &self,
+            _request: NormalizedChatRequest,
+        ) -> Result<BackendStream, BackendError> {
+            let stream: BoxStream<'static, Result<BackendChunk, BackendError>> =
+                Box::pin(futures_util::stream::empty());
+            Ok(stream)
+        }
+    }
+
     #[tokio::test]
     async fn coalesces_identical_one_shot_requests() {
         let coalescer = Arc::new(InflightCoalescer::default());
-        let backend = Arc::new(MockBackend::default());
+        let backend = Arc::new(SlowTestBackend);
 
         let request = NormalizedChatRequest {
             request_id: "req_1".to_owned(),
@@ -198,8 +238,14 @@ mod tests {
             tokio::spawn(async move { coalescer.execute_or_join(key, backend, request).await })
         };
 
-        let first = first.await.expect("first task should run").expect("first result");
-        let second = second.await.expect("second task should run").expect("second result");
+        let first = first
+            .await
+            .expect("first task should run")
+            .expect("first result");
+        let second = second
+            .await
+            .expect("second task should run")
+            .expect("second result");
 
         assert_ne!(first.1, second.1);
         assert!(

@@ -21,7 +21,13 @@ fn canonical_payload(request: &NormalizedChatRequest) -> String {
     let mut payload = String::new();
     payload.push_str(&request.model);
     payload.push('|');
-    payload.push_str(&request.generation.max_tokens.unwrap_or_default().to_string());
+    payload.push_str(
+        &request
+            .generation
+            .max_tokens
+            .unwrap_or_default()
+            .to_string(),
+    );
     payload.push('|');
     payload.push_str(&opt_float(request.generation.temperature));
     payload.push('|');
@@ -71,9 +77,7 @@ fn nibble_to_hex(value: u8) -> char {
 
 #[cfg(test)]
 mod tests {
-    use crate::models::{
-        GenerationParams, MessageRole, NormalizedChatRequest, NormalizedMessage,
-    };
+    use crate::models::{GenerationParams, MessageRole, NormalizedChatRequest, NormalizedMessage};
 
     use super::fingerprint_for;
 

@@ -88,7 +88,7 @@ impl ChatCompletionsRequest {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BackendChatResponse {
     pub content: String,
     pub finish_reason: String,
@@ -103,7 +103,7 @@ pub struct BackendChunk {
     pub done: bool,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Usage {
     pub prompt_tokens: u32,
     pub completion_tokens: u32,

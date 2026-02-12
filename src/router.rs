@@ -118,6 +118,7 @@ impl BackendRouter {
                 health.circuit_open_until = None;
                 health.consecutive_failures = 0;
             }
+            drop(health);
 
             return Ok(endpoint);
         }
@@ -179,7 +180,10 @@ impl InferenceBackend for BackendRouter {
         result
     }
 
-    async fn stream_chat(&self, request: NormalizedChatRequest) -> Result<BackendStream, BackendError> {
+    async fn stream_chat(
+        &self,
+        request: NormalizedChatRequest,
+    ) -> Result<BackendStream, BackendError> {
         let endpoint = self.select_endpoint().await?;
         let started = Instant::now();
         let result = endpoint.backend.stream_chat(request).await;

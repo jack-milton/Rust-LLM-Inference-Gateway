@@ -53,7 +53,10 @@ impl InferenceBackend for MockBackend {
         })
     }
 
-    async fn stream_chat(&self, request: NormalizedChatRequest) -> Result<BackendStream, BackendError> {
+    async fn stream_chat(
+        &self,
+        request: NormalizedChatRequest,
+    ) -> Result<BackendStream, BackendError> {
         let content = render_response(&request);
         let usage = estimate_usage(&request, &content);
         let delay = self.token_delay;

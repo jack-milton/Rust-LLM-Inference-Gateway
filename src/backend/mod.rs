@@ -1,4 +1,5 @@
 pub mod mock;
+pub mod openai;
 
 use async_trait::async_trait;
 use futures_util::stream::BoxStream;
@@ -15,7 +16,10 @@ pub trait InferenceBackend: Send + Sync {
         &self,
         request: NormalizedChatRequest,
     ) -> Result<BackendChatResponse, BackendError>;
-    async fn stream_chat(&self, request: NormalizedChatRequest) -> Result<BackendStream, BackendError>;
+    async fn stream_chat(
+        &self,
+        request: NormalizedChatRequest,
+    ) -> Result<BackendStream, BackendError>;
 }
 
 #[derive(Debug, Error)]

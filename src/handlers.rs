@@ -1,11 +1,12 @@
 use std::{
     convert::Infallible,
-    time::{SystemTime, UNIX_EPOCH},
+    sync::Arc,
+    time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
 use axum::{
     extract::State,
-    http::HeaderMap,
+    http::{header::CONTENT_TYPE, HeaderMap},
     response::{
         sse::{Event, KeepAlive, Sse},
         IntoResponse, Response,
@@ -17,11 +18,13 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::{
+    backend::InferenceBackend,
     coalescing::CoalesceOutcome,
     errors::AppError,
     limits::{estimate_request_tokens, RateLimitSnapshot},
     models::{
-        ChatCompletionsChunk, ChatCompletionsRequest, ChatCompletionsResponse, NormalizedChatRequest,
+        ChatCompletionsChunk, ChatCompletionsRequest, ChatCompletionsResponse,
+        NormalizedChatRequest,
     },
     scheduler,
     state::AppState,
@@ -31,11 +34,48 @@ pub async fn healthz() -> &'static str {
     "ok"
 }
 
+pub async fn metrics(State(state): State<AppState>) -> Response {
+    match state.metrics.render() {
+        Ok(body) => (
+            [(CONTENT_TYPE, "text/plain; version=0.0.4; charset=utf-8")],
+            body,
+        )
+            .into_response(),
+        Err(error) => AppError::Internal(format!("metrics render failed: {error}")).into_response(),
+    }
+}
+
 pub async fn chat_completions(
     State(state): State<AppState>,
     headers: HeaderMap,
     Json(request): Json<ChatCompletionsRequest>,
+) -> Response {
+    let started = Instant::now();
+    let stream = request.stream;
+    let _inflight = state.metrics.inflight_guard();
+
+    let response = match process_chat_completions(state.clone(), headers, request).await {
+        Ok(response) => response,
+        Err(error) => error.into_response(),
+    };
+
+    state.metrics.observe_request(
+        "/v1/chat/completions",
+        "POST",
+        stream,
+        response.status().as_u16(),
+        started.elapsed(),
+    );
+
+    response
+}
+
+async fn process_chat_completions(
+    state: AppState,
+    headers: HeaderMap,
+    request: ChatCompletionsRequest,
 ) -> Result<Response, AppError> {
+    let client_user = request.user.clone();
     let auth_context = state.auth.authenticate(&headers)?;
     let user_id = auth_context.user_id.clone();
     let normalized = request
@@ -62,6 +102,7 @@ pub async fn chat_completions(
         model = %normalized.model,
         stream = normalized.stream,
         estimated_tokens,
+        client_user = %client_user.unwrap_or_default(),
         fingerprint = %fingerprint.as_str(),
         "chat request accepted"
     );
@@ -99,12 +140,33 @@ async fn one_shot_completion(
 ) -> Result<Response, AppError> {
     let created = unix_timestamp();
     let response_id = format!("chatcmpl-{}", Uuid::new_v4());
+    let cache_key = fingerprint.clone();
+
+    if let Some(cached) = state.response_cache.get(&cache_key).await {
+        state
+            .rate_limiter
+            .reconcile_tokens(&api_key, estimated_tokens, cached.usage.total_tokens as u64)
+            .await;
+        state.metrics.observe_usage(&cached.usage);
+
+        let payload =
+            ChatCompletionsResponse::from_backend(response_id, created, request.model, cached);
+        let mut response = Json(payload).into_response();
+        apply_rate_limit_headers(response.headers_mut(), &rate_snapshot);
+        crate::errors::apply_header(response.headers_mut(), "x-cache", "hit");
+        return Ok(response);
+    }
+
+    let execution_backend: Arc<dyn InferenceBackend> = state.batcher.clone();
 
     let (backend_response, coalesced) = state
         .coalescer
-        .execute_or_join(fingerprint, state.backend.clone(), request.clone())
+        .execute_or_join(fingerprint, execution_backend, request.clone())
         .await
-        .map_err(|error| AppError::Backend(error.to_string()))?;
+        .map_err(|error| {
+            state.metrics.observe_backend_error("one_shot");
+            AppError::Backend(error.to_string())
+        })?;
     state
         .rate_limiter
         .reconcile_tokens(
@@ -113,11 +175,21 @@ async fn one_shot_completion(
             backend_response.usage.total_tokens as u64,
         )
         .await;
+    state.metrics.observe_usage(&backend_response.usage);
+    state
+        .response_cache
+        .set(&cache_key, &backend_response)
+        .await;
 
-    let payload =
-        ChatCompletionsResponse::from_backend(response_id, created, request.model, backend_response);
+    let payload = ChatCompletionsResponse::from_backend(
+        response_id,
+        created,
+        request.model,
+        backend_response,
+    );
     let mut response = Json(payload).into_response();
     apply_rate_limit_headers(response.headers_mut(), &rate_snapshot);
+    crate::errors::apply_header(response.headers_mut(), "x-cache", "miss");
 
     if coalesced == CoalesceOutcome::Joined {
         info!("one-shot response served from inflight coalescing");
@@ -137,16 +209,21 @@ async fn stream_completion(
     let created = unix_timestamp();
     let response_id = format!("chatcmpl-{}", Uuid::new_v4());
     let model = request.model.clone();
-    let stream_join = state.coalescer.join_or_create_stream(fingerprint.clone()).await;
+    let stream_join = state
+        .coalescer
+        .join_or_create_stream(fingerprint.clone())
+        .await;
     if stream_join.is_leader {
         let backend = state.backend.clone();
         let coalescer = state.coalescer.clone();
         let request_for_leader = request;
         let key = fingerprint.clone();
+        let metrics = state.metrics.clone();
         tokio::spawn(async move {
             let backend_stream = match backend.stream_chat(request_for_leader).await {
                 Ok(stream) => stream,
                 Err(error) => {
+                    metrics.observe_backend_error("stream_leader_start");
                     coalescer
                         .publish_stream_item(&key, Err(error.to_string()))
                         .await;
@@ -165,6 +242,7 @@ async fn stream_completion(
                         }
                     }
                     Err(error) => {
+                        metrics.observe_backend_error("stream_leader_read");
                         coalescer
                             .publish_stream_item(&key, Err(error.to_string()))
                             .await;
@@ -202,6 +280,7 @@ async fn stream_completion(
                                     usage.total_tokens as u64,
                                 )
                                 .await;
+                            state.metrics.observe_usage(&usage);
                             info!(
                                 prompt_tokens = usage.prompt_tokens,
                                 completion_tokens = usage.completion_tokens,
@@ -215,6 +294,7 @@ async fn stream_completion(
                     }
                 }
                 Err(error) => {
+                    state.metrics.observe_backend_error("stream_fanout");
                     warn!(error = %error, "backend stream error");
                     let error_json = serde_json::json!({
                         "error": {
