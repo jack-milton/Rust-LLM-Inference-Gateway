@@ -1,6 +1,16 @@
 # Rust LLM Inference Gateway
 
-OpenAI-compatible reverse proxy scaffold for LLM inference with a scheduler-friendly internal model.
+High-performance, OpenAI-compatible Rust gateway for LLM inference with a consistent, provider-agnostic API.
+
+It sits between clients and model backends to handle routing, streaming, rate limiting, caching, and observability, so you can scale inference without changing client integrations.
+See `RELEASE_NOTES_v1.0.0.md` for the v1.0.0 release summary.
+
+## Highlights
+- OpenAI-style `POST /v1/chat/completions` (streaming + non-streaming)
+- Backend routing with health checks and circuit breaking
+- Per-key rate limiting and one-shot response caching
+- Prometheus metrics and in-flight request coalescing
+
 
 Current foundation includes:
 - `POST /v1/chat/completions` (streaming + non-streaming)
